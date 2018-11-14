@@ -7,7 +7,5 @@ os:
 r:
   - release
 
-addons:
-  homebrew:
-    packages:
-      - geos
+before_install:
+  - brew install geos
