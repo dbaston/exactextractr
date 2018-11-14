@@ -8,4 +8,4 @@ r:
   - release
 
 before_install:
-  - brew install geos
+  - brew upgrade geos
