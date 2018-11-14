@@ -3,10 +3,11 @@ language: R
 os:
   - osx
 
-before_install:
-  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update ; fi
-  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install r ; fi
-  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install geos ; fi
+addons:
+  homebrew:
+    packages:
+      - r
+      - geos
 
 script:
   - R CMD check .
