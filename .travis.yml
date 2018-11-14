@@ -1,0 +1,12 @@
+language: r
+cache: packages
+
+os:
+  - osx 
+
+before_install:
+  - brew install geos
+
+r:
+  - release
+
