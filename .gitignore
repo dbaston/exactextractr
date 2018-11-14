@@ -5,6 +5,11 @@
 *.o
 *.so
 *.dll
+*.gz
 docs/
 man/
 windows/
+src/Makevars
+autom4te.cache/
+config.log
+config.status
