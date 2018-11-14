@@ -1,4 +1,4 @@
-language: R
+language: r
 
 os:
   - osx
@@ -6,9 +6,4 @@ os:
 addons:
   homebrew:
     packages:
-      - r
       - geos
-
-script:
-  - R CMD check .
-  - echo "hello"
