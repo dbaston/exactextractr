@@ -18,6 +18,8 @@
 #include "crossing.h"
 #include "side.h"
 
+#include <limits>
+
 namespace exactextract {
 
     struct Box {
@@ -31,6 +33,15 @@ namespace exactextract {
                 ymin{ymin},
                 xmax{xmax},
                 ymax{ymax} {}
+
+        static Box maximum_finite() {
+            return {
+                std::numeric_limits<double>::lowest(),
+                std::numeric_limits<double>::lowest(),
+                std::numeric_limits<double>::max(),
+                std::numeric_limits<double>::max()
+            };
+        }
 
         double width() const {
             return xmax - xmin;
@@ -46,6 +57,37 @@ namespace exactextract {
 
         double perimeter() const {
             return 2 * width() + 2 * height();
+        }
+
+        bool intersects(const Box & other) const {
+            if (other.ymin > ymax)
+                return false;
+            if (other.ymax < ymin)
+                return false;
+            if (other.xmin > xmax)
+                return false;
+            if (other.xmax < xmin)
+                return false;
+
+            return true;
+        }
+
+        Box intersection(const Box & other) const {
+            return {
+                std::max(xmin, other.xmin),
+                std::max(ymin, other.ymin),
+                std::min(xmax, other.xmax),
+                std::min(ymax, other.ymax)
+            };
+        }
+
+        Box translate(double dx, double dy) const {
+            return {
+                xmin + dx,
+                ymin + dy,
+                xmax + dx,
+                ymax + dy
+            };
         }
 
         Coordinate upper_left() const {
@@ -68,11 +110,20 @@ namespace exactextract {
 
         Crossing crossing(const Coordinate &c1, const Coordinate &c2) const;
 
+        bool contains(const Box &b) const;
+
         bool contains(const Coordinate &c) const;
 
         bool strictly_contains(const Coordinate &c) const;
 
+        bool operator==(const Box& other) const {
+            return xmin == other.xmin && xmax == other.xmax && ymin == other.ymin && ymax == other.ymax;
+        }
+
+        friend std::ostream &operator<<(std::ostream &os, const Box &c);
     };
+
+    std::ostream &operator<<(std::ostream &os, const Box &c);
 
 }
 

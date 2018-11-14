@@ -18,8 +18,7 @@
 #include <iterator>
 #include <memory>
 #include <cstring>
-
-#define CHECK_BOUNDS true
+#include <vector>
 
 namespace exactextract {
 
@@ -33,7 +32,9 @@ class Matrix {
             m_rows{rows},
             m_cols{cols}
         {
-            m_data = std::unique_ptr<T[]>(new T[m_rows*m_cols]());
+            if (m_rows > 0 && m_cols > 0) {
+                m_data = std::unique_ptr<T[]>(new T[m_rows * m_cols]());
+            }
         }
 
         Matrix(const std::vector<std::vector<T>> & data) :
@@ -46,6 +47,13 @@ class Matrix {
             for (auto& row : data) {
                 lastpos = std::copy(row.begin(), row.end(), lastpos);
             }
+        }
+
+        Matrix(Matrix<T>&& m) :
+                m_rows{m.rows()},
+                m_cols{m.cols()}
+        {
+            m_data = std::move(m.m_data);
         }
 
         T& operator()(size_t row, size_t col) {
@@ -86,17 +94,11 @@ class Matrix {
         }
 
         void check(size_t row, size_t col) const {
-            #if CHECK_BOUNDS
+            #ifdef MATRIX_CHECK_BOUNDS
                 if (row + 1 > m_rows) {
                     throw std::out_of_range("Row " + std::to_string(row) + " is out of range.");
                 }
-                if (row < 0) {
-                    throw std::out_of_range("Row " + std::to_string(row) + " is out of range.");
-                }
                 if (col + 1 > m_cols) {
-                    throw std::out_of_range("Col " + std::to_string(col) + " is out of range.");
-                }
-                if (col < 0) {
                     throw std::out_of_range("Col " + std::to_string(col) + " is out of range.");
                 }
             #endif
