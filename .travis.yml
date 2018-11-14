@@ -1,7 +1,11 @@
 language: r
+cache: packages
 
 os:
-  - osx
+  - osx 
+
+r:
+  - release
 
 addons:
   homebrew:
