@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.7)
 project(exactextract)
+set(default_build_type "Release")
 
 set(LIB_NAME exactextract)
+set(BIN_NAME exactextract_bin)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,9 +13,14 @@ include(GNUInstallDirs)
 
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
+include(VersionSource)
 find_package(GEOS REQUIRED)
 find_package(GDAL)
 
+message(STATUS "Source version: " ${EXACTEXTRACT_VERSION_SOURCE})
+configure_file(src/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/version.h)
+
+# Download Catch (header-only library)
 set(CATCH_INCLUDE_DIR ${CMAKE_BINARY_DIR}/catch)
 set(CATCH_INCLUDE ${CATCH_INCLUDE_DIR}/catch.hpp)
 
@@ -21,6 +28,22 @@ if (NOT EXISTS ${CATCH_INCLUDE})
     file(DOWNLOAD https://github.com/catchorg/Catch2/releases/download/v2.2.2/catch.hpp
          ${CATCH_INCLUDE}
          SHOW_PROGRESS)
+endif()
+
+# Download CLI11 (header-only library)
+set(CLI11_INCLUDE_DIR ${CMAKE_BINARY_DIR}/CLI11)
+set(CLI11_INCLUDE ${CLI11_INCLUDE_DIR}/CLI11.hpp)
+
+if (NOT EXISTS ${CLI11_INCLUDE})
+    file(DOWNLOAD https://github.com/CLIUtils/CLI11/releases/download/v1.6.0/CLI11.hpp
+            ${CLI11_INCLUDE}
+            SHOW_PROGRESS)
+endif()
+
+# Make sure we know our build type
+if(NOT CMAKE_BUILD_TYPE)
+    message(STATUS "Setting build type to '${default_build_type}' as none was specified")
+    set(CMAKE_BUILD_TYPE "${default_build_type}")
 endif()
 
 set(PROJECT_SOURCES
@@ -33,15 +56,18 @@ set(PROJECT_SOURCES
         src/coordinate.cpp
         src/coordinate.h
         src/crossing.h
-        src/extent.cpp
-        src/extent.h
+        src/csv_utils.h
+        src/csv_utils.cpp
         src/floodfill.cpp
         src/floodfill.h
         src/geos_utils.cpp
         src/geos_utils.h
+        src/grid.h
+        src/grid.cpp
         src/matrix.h
         src/perimeter_distance.cpp
         src/perimeter_distance.h
+        src/raster.h
         src/raster_cell_intersection.cpp
         src/raster_cell_intersection.h
         src/raster_stats.h
@@ -52,51 +78,64 @@ set(PROJECT_SOURCES
         src/traversal.h
         src/traversal_areas.cpp
         src/traversal_areas.h
-)
+        )
 
 set(TEST_SOURCES
         test/test_box.cpp
         test/test_cell.cpp
-        test/test_extent.cpp
+        test/test_csv.cpp
+        test/test_geos_utils.cpp
+        test/test_grid.cpp
         test/test_main.cpp
         test/test_perimeter_distance.cpp
+        test/test_raster.cpp
         test/test_raster_cell_intersection.cpp
         test/test_traversal_areas.cpp
         test/test_stats.cpp)
 
-add_library(${LIB_NAME} SHARED ${PROJECT_SOURCES})
+set(BIN_SOURCES
+        src/exactextract.cpp
+        src/gdal_raster_wrapper.h
+        src/gdal_raster_wrapper.cpp
+        src/gdal_dataset_wrapper.h
+        src/gdal_dataset_wrapper.cpp)
 
-target_include_directories(
-        ${LIB_NAME}
-        PRIVATE
-            ${GEOS_INCLUDE_DIR}
-)
+# Handle differences between debug and release builds
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set_source_files_properties(src/matrix.h PROPERTIES COMPILE_DEFINITIONS MATRIX_CHECK_BOUNDS)
+elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+    # Nothing yet
+else()
+    message(FATAL_ERROR "Unknown build type: " ${CMAKE_BUILD_TYPE})
+endif()
 
-add_executable(catch_tests ${TEST_SOURCES})
-
-
-if (GDAL_FOUND)
-    add_executable(zonal_example
-            example/zonal_example.cpp
-            )
-
-    target_link_libraries(
-            zonal_example
-            PRIVATE
-                ${LIB_NAME}
-                ${GDAL_LIBRARY}
-                ${GEOS_LIBRARY}
-    )
+# Make a shared and static version of the library
+foreach(LINKING SHARED STATIC)
+    add_library(${LIB_NAME}_${LINKING} ${LINKING} ${PROJECT_SOURCES})
 
     target_include_directories(
-            zonal_example
+            ${LIB_NAME}_${LINKING}
             PRIVATE
-                ${GDAL_INCLUDE_DIR}
-                ${GEOS_INCLUDE_DIR}
-                ${CMAKE_SOURCE_DIR}/src
+            ${GEOS_INCLUDE_DIR}
     )
 
-endif(GDAL_FOUND)
+    target_compile_definitions(
+            ${LIB_NAME}_${LINKING}
+            PRIVATE
+            GEOS_USE_ONLY_R_API
+    )
+
+    target_link_libraries(
+            ${LIB_NAME}_${LINKING}
+            PUBLIC
+            ${GEOS_LIBRARY}
+    )
+
+    set_target_properties(${LIB_NAME}_${LINKING} PROPERTIES OUTPUT_NAME ${LIB_NAME})
+endforeach(LINKING)
+
+# Create an executable to run the unit tests
+add_executable(catch_tests ${TEST_SOURCES})
 
 target_include_directories(
         catch_tests
@@ -109,7 +148,42 @@ target_include_directories(
 target_link_libraries(
         catch_tests
         PRIVATE
-            ${LIB_NAME}
+            ${LIB_NAME}_SHARED
             ${GEOS_LIBRARY}
 )
+
+# Create our main program, statically linked to our library
+# Unlike the library, this depends on GDAL
+if (GDAL_FOUND)
+    add_executable(${BIN_NAME} ${BIN_SOURCES})
+    set_target_properties(${BIN_NAME} PROPERTIES OUTPUT_NAME "exactextract")
+
+    target_compile_definitions(${BIN_NAME} PRIVATE GEOS_USE_ONLY_R_API)
+
+    target_link_libraries(
+            ${BIN_NAME}
+            PRIVATE
+            ${LIB_NAME}_STATIC
+            ${GDAL_LIBRARY}
+            ${GEOS_LIBRARY}
+    )
+
+    target_include_directories(
+            ${BIN_NAME}
+            PRIVATE
+            ${CMAKE_BINARY_DIR}/generated
+            ${CMAKE_SOURCE_DIR}/src
+            ${CLI11_INCLUDE_DIR}
+            ${GEOS_INCLUDE_DIR}
+            ${GDAL_INCLUDE_DIR}
+    )
+
+    install(TARGETS ${BIN_NAME}
+            RUNTIME
+            DESTINATION bin)
+else(GDAL_FOUND)
+    message(WARNING
+            "GDAL was not found. It is still possible to build and test libexactextract, but the "
+            "exactextract executable cannot be built or installed.")
+endif(GDAL_FOUND)
 
