@@ -11,23 +11,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// [[Rcpp::plugins(cpp14)]]
+// [[Rcpp::plugins("cpp14")]]
 #include <memory>
 
 #include <Rcpp.h>
 #include <geos_c.h>
 
-#include "exactextract/src/extent.h"
+#include "exactextract/src/grid.h"
 #include "exactextract/src/raster_cell_intersection.h"
 #include "exactextract/src/raster_stats.h"
 
 #include "matrix_wrapper.h"
 
-using geom_ptr= std::unique_ptr<GEOSGeometry, decltype(&GEOSGeom_destroy)>;
-using wkb_reader_ptr = std::unique_ptr<GEOSWKBReader, decltype(&GEOSWKBReader_destroy)>;
+using geom_ptr= std::unique_ptr<GEOSGeometry, std::function<void(GEOSGeometry*)>>;
+using wkb_reader_ptr = std::unique_ptr<GEOSWKBReader, std::function<void(GEOSGeometry*)>>;
 
-using exactextract::Extent;
-using exactextract::RasterCellIntersection;
+using exactextract::Grid;
+using exactextract::bounded_extent;
+using exactextract::Raster;
+using exactextract::RasterView;
+using exactextract::raster_cell_intersection;
 using exactextract::RasterStats;
 
 // GEOS warning handler
@@ -56,7 +59,7 @@ static void geos_error(const char* fmt, ...) {
 }
 
 // Create an Extent from vectors representing the spatial extent and resolution
-static Extent make_extent(const Rcpp::NumericVector & extent, const Rcpp::NumericVector & res) {
+static Grid<bounded_extent> make_extent(const Rcpp::NumericVector & extent, const Rcpp::NumericVector & res) {
   double xmin = extent[0];
   double xmax = extent[1];
   double ymin = extent[2];
@@ -65,17 +68,18 @@ static Extent make_extent(const Rcpp::NumericVector & extent, const Rcpp::Numeri
   double dx = res[0];
   double dy = res[1];
 
-  return {xmin, ymin, xmax, ymax, dx, dy};
+  return {{xmin, ymin, xmax, ymax}, dx, dy};
 }
 
 // Return a smart pointer to a Geometry, given WKB input
-static geom_ptr read_wkb(const Rcpp::RawVector & wkb) {
-  wkb_reader_ptr wkb_reader{ GEOSWKBReader_create(), GEOSWKBReader_destroy };
+static geom_ptr read_wkb(const GEOSContextHandle_t & context, const Rcpp::RawVector & wkb) {
+  wkb_reader_ptr wkb_reader{ GEOSWKBReader_create_r(context), [context](GEOSWKBReader* r) { GEOSWKBReader_destroy_r(context, r); } };
 
-  geom_ptr geom{ GEOSWKBReader_read(wkb_reader.get(),
-                                    std::addressof(wkb[0]),
-                                    wkb.size()),
-                 GEOSGeom_destroy };
+  geom_ptr geom{ GEOSWKBReader_read_r(context,
+                                      wkb_reader.get(),
+                                      std::addressof(wkb[0]),
+                                      wkb.size()),
+                 [context](GEOSGeometry* g) { GEOSGeom_destroy_r(context, g); } };
 
   if (geom.get() == nullptr) {
     Rcpp::stop("Failed to parse WKB geometry");
@@ -88,27 +92,29 @@ static geom_ptr read_wkb(const Rcpp::RawVector & wkb) {
 Rcpp::List CPP_exact_extract(const Rcpp::NumericVector & extent,
                              const Rcpp::NumericVector & res,
                              const Rcpp::RawVector & wkb) {
-  Extent ex = make_extent(extent, res);
+  auto handle = initGEOS_r(geos_warn, geos_error);
+  {
+    auto grid = make_extent(extent, res);
+    auto coverage_fractions = raster_cell_intersection(grid, handle, read_wkb(handle, wkb).get());
 
-  initGEOS(geos_warn, geos_error);
+    size_t nrow = coverage_fractions.rows();
+    size_t ncol = coverage_fractions.cols();
 
-  const exactextract::RasterCellIntersection rci(ex, read_wkb(wkb).get());
-
-  size_t nrow = rci.rows();
-  size_t ncol = rci.cols();
-
-  Rcpp::NumericMatrix weights = Rcpp::no_init(nrow, ncol);
-  for (size_t i = 0; i < nrow; i++) {
-    for (size_t j = 0; j < ncol; j++) {
-      weights(i, j) = rci.get_local(i ,j);
+    Rcpp::NumericMatrix weights = Rcpp::no_init(nrow, ncol);
+    for (size_t i = 0; i < nrow; i++) {
+      for (size_t j = 0; j < ncol; j++) {
+        weights(i, j) = coverage_fractions(i ,j);
+      }
     }
-  }
 
-  return Rcpp::List::create(
-    Rcpp::Named("row")     = 1+rci.min_row(),
-    Rcpp::Named("col")     = 1+rci.min_col(),
-    Rcpp::Named("weights") = weights
-  );
+    return Rcpp::List::create(
+      Rcpp::Named("row")     = 1 + coverage_fractions.grid().row_offset(grid),
+      Rcpp::Named("col")     = 1 + coverage_fractions.grid().col_offset(grid),
+      Rcpp::Named("weights") = weights
+    );
+
+  }
+  finishGEOS_r(handle);
 }
 
 // [[Rcpp::export]]
@@ -116,28 +122,28 @@ Rcpp::NumericMatrix CPP_weights(const Rcpp::NumericVector & extent,
                                 const Rcpp::NumericVector & res,
                                 const Rcpp::RawVector & wkb)
 {
-  Extent ex = make_extent(extent, res);
+  auto handle = initGEOS_r(geos_warn, geos_error);
+  auto grid = make_extent(extent, res);
+  auto coverage_fraction = raster_cell_intersection(grid, handle, read_wkb(handle, wkb).release());
 
-  size_t nrow = ex.rows();
-  size_t ncol = ex.cols();
+  RasterView<float> coverage_view(coverage_fraction, grid);
 
-  initGEOS(geos_warn, geos_error);
+  Rcpp::NumericMatrix weights{static_cast<int>(grid.rows()),
+                              static_cast<int>(grid.cols())};
 
-  exactextract::RasterCellIntersection rci(ex, read_wkb(wkb).get());
-
-  Rcpp::NumericMatrix weights(nrow, ncol);
-  for (size_t i = rci.min_row(); i < rci.max_row(); i++) {
-    for (size_t j = rci.min_col(); j < rci.max_col(); j++) {
-      weights(i, j) = rci.get(i, j);
+  for (size_t i = 0; i < grid.rows(); i++) {
+    for (size_t j = 0; j < grid.cols(); j++) {
+      weights(i, j) = coverage_view(i, j);
     }
   }
+
+  finishGEOS_r(handle);
 
   return weights;
 }
 
 // [[Rcpp::export]]
 SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringVector & stats) {
-  initGEOS(geos_warn, geos_error);
 
   Rcpp::Environment raster = Rcpp::Environment::namespace_env("raster");
   Rcpp::Function getValuesBlockFn = raster["getValuesBlock"];
@@ -147,28 +153,31 @@ SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringV
   Rcpp::S4 extent = extentFn(rast);
   Rcpp::NumericVector res = resFn(rast);
 
-  Extent ex {
+  Grid<bounded_extent> grid {{
     extent.slot("xmin"),
     extent.slot("ymin"),
     extent.slot("xmax"),
     extent.slot("ymax"),
+    },
     res[0],
     res[1]
   };
 
-  exactextract::RasterCellIntersection rci(ex, read_wkb(wkb).get());
+  auto handle = initGEOS_r(geos_warn, geos_error);
+  auto coverage_fraction = raster_cell_intersection(grid, handle, read_wkb(handle, wkb).release());
 
   Rcpp::NumericVector stat_results = Rcpp::no_init(stats.size());
 
   Rcpp::NumericMatrix rast_values = getValuesBlockFn(rast,
-                                                     1 + rci.min_row(),
+                                                     1 + rci.row_offset(grid)
                                                      rci.rows(),
-                                                     1 + rci.min_col(),
+                                                     1 + rci.col_offset(grid),
                                                      rci.cols(),
                                                      "matrix");
 
-  auto mat = wrap(rast_values);
-  RasterStats<decltype(mat)> raster_stats{rci, mat, true};
+  auto mat = wrap(rast_values); // TODO get rid of this and dispatch based on NumericMatrix, IntegerMatrix
+  RasterStats<mat::value_type> raster_stats{true}; // TODO check if this can be false depending on stat
+  raster_stats.process(coverage_fracton, );
 
   int i = 0;
   for (const auto & stat : stats) {
@@ -189,6 +198,8 @@ SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringV
 
     i++;
   }
+
+  finishGEOS_r(handle);
 
   return stat_results;
 }

@@ -15,6 +15,8 @@
 // IntegerMatrix types, so that their elements can be accessed by
 // code expecting a type of the form Container<T>
 
+#include "exactextract/src/raster.h"
+
 template<typename T>
 struct MatrixWrapper {};
 
@@ -52,3 +54,17 @@ MatrixWrapper<int> wrap(const Rcpp::IntegerMatrix & m) {
   return { m };
 }
 
+class NumericMatrixRaster : public exactextract::AbstractRaster {
+public:
+  NumericMatrixRaster(const Rcpp::NumericMatrix & mat, const Box & b) :
+    m_mat{mat},
+    m_grid{}
+  }
+
+  virtual double operator()(size_t row, size_t col) const {
+
+  }
+private:
+  const Rcpp::NumericMatrix& m_mat;
+  const Grid<bounded_extent> m_grid;
+}
