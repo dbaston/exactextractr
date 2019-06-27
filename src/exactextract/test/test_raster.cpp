@@ -52,6 +52,70 @@ TEST_CASE("Constructing a Raster" ) {
     CHECK (all_equal);
 };
 
+TEST_CASE("Rasters are unequal when their values differ") {
+    Raster<float> r1{{0, 0, 1, 1}, 10, 10};
+    Raster<float> r2{{0, 0, 1, 1}, 10, 10};
+
+    fill_with_squares(r1);
+    fill_with_squares(r2);
+
+    CHECK( r1 == r2 );
+    CHECK( !(r1 != r2) );
+
+    r2(1, 3) = -5;
+
+    CHECK( !(r1 == r2) );
+    CHECK( r1 != r2 );
+}
+
+TEST_CASE("Rasters are unequal when their extents differ") {
+    Raster<float> r1{{0, 0, 1, 1}, 10, 10};
+    Raster<float> r2{{0, 0, 1, 10}, 10, 10};
+
+    fill_with_squares(r1);
+    fill_with_squares(r2);
+
+    CHECK( r1 != r2);
+}
+
+TEST_CASE("Rasters are equal if their NODATA values differ, only long as the NODATA value is never used (1)") {
+    Raster<int> r1{{0, 0, 1, 1}, 10, 10};
+    Raster<int> r2{{0, 0, 1, 1}, 10, 10};
+
+    r1.set_nodata(999);
+
+    fill_with_squares(r1);
+    fill_with_squares(r2);
+
+    CHECK( r1 == r2);
+
+    r1.set_nodata(25);
+
+    CHECK( r1 != r2 );
+
+    r2.set_nodata(25);
+
+    CHECK( r1 == r2);
+}
+
+TEST_CASE("Rasters are equal if their NODATA values differ, only long as the NODATA value is never used (2)") {
+    Raster<int> r1{{0, 0, 1, 1}, 10, 10};
+    Raster<int> r2{{0, 0, 1, 1}, 10, 10};
+
+    fill_with_squares(r1);
+    fill_with_squares(r2);
+
+    CHECK( r1 == r2);
+
+    r2.set_nodata(25);
+
+    CHECK( r1 != r2 );
+
+    r1.set_nodata(25);
+
+    CHECK( r1 == r2 );
+}
+
 TEST_CASE("Creating a scaled view") {
     Raster<float> r{{0, 0, 10, 10}, 10, 10};
     Grid<bounded_extent> ex{{0, 0, 10, 10}, 0.1, 0.1};
@@ -179,13 +243,14 @@ TEST_CASE("Creating a scaled and shifted view (greater extent)") {
     CHECK (rv == expected );
 }
 
-TEST_CASE("Get method accesses value and tells us if it was defiend") {
+TEST_CASE("Get method accesses value and tells us if it was defined") {
     float nan = std::numeric_limits<float>::quiet_NaN();
 
     Raster<float> r{
-        {{{ 1, -999},
-          {nan, 7  }}},
-      {0, 0, 2, 2}};
+        Matrix<float>{{
+            { 1, -999},
+            {nan, 7  }}},
+        Box{0, 0, 2, 2}};
     r.set_nodata(-999);
 
     float f{0};
