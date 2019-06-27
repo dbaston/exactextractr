@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.7)
+cmake_minimum_required(VERSION 3.8)
 project(exactextract)
-set(default_build_type "Release")
+set(DEFAULT_BUILD_TYPE "Release")
 
 set(LIB_NAME exactextract)
 set(BIN_NAME exactextract_bin)
@@ -19,6 +19,10 @@ find_package(GDAL)
 
 message(STATUS "Source version: " ${EXACTEXTRACT_VERSION_SOURCE})
 configure_file(src/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/version.h)
+
+if (GEOS_VERSION_MAJOR LESS 3 OR GEOS_VERSION_MINOR LESS 7)
+    message(FATAL_ERROR "GEOS version 3.7 or later is required.")
+endif()
 
 # Download Catch (header-only library)
 set(CATCH_INCLUDE_DIR ${CMAKE_BINARY_DIR}/catch)
@@ -40,10 +44,13 @@ if (NOT EXISTS ${CLI11_INCLUDE})
             SHOW_PROGRESS)
 endif()
 
+# Define coverage build type
+set(CMAKE_CXX_FLAGS_COVERAGE "-fprofile-arcs -ftest-coverage")
+
 # Make sure we know our build type
 if(NOT CMAKE_BUILD_TYPE)
-    message(STATUS "Setting build type to '${default_build_type}' as none was specified")
-    set(CMAKE_BUILD_TYPE "${default_build_type}")
+    message(STATUS "Setting build type to '${DEFAULT_BUILD_TYPE}' as none was specified")
+    set(CMAKE_BUILD_TYPE "${DEFAULT_BUILD_TYPE}")
 endif()
 
 set(PROJECT_SOURCES
@@ -56,8 +63,6 @@ set(PROJECT_SOURCES
         src/coordinate.cpp
         src/coordinate.h
         src/crossing.h
-        src/csv_utils.h
-        src/csv_utils.cpp
         src/floodfill.cpp
         src/floodfill.h
         src/geos_utils.cpp
@@ -78,12 +83,16 @@ set(PROJECT_SOURCES
         src/traversal.h
         src/traversal_areas.cpp
         src/traversal_areas.h
-        )
+        src/output_writer.h
+        src/output_writer.cpp
+        src/operation.h
+        src/stats_registry.h
+        src/utils.h
+        src/utils.cpp)
 
 set(TEST_SOURCES
         test/test_box.cpp
         test/test_cell.cpp
-        test/test_csv.cpp
         test/test_geos_utils.cpp
         test/test_grid.cpp
         test/test_main.cpp
@@ -91,27 +100,31 @@ set(TEST_SOURCES
         test/test_raster.cpp
         test/test_raster_cell_intersection.cpp
         test/test_traversal_areas.cpp
-        test/test_stats.cpp)
+        test/test_stats.cpp
+        test/test_utils.cpp)
 
 set(BIN_SOURCES
         src/exactextract.cpp
         src/gdal_raster_wrapper.h
         src/gdal_raster_wrapper.cpp
         src/gdal_dataset_wrapper.h
-        src/gdal_dataset_wrapper.cpp)
-
-# Handle differences between debug and release builds
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set_source_files_properties(src/matrix.h PROPERTIES COMPILE_DEFINITIONS MATRIX_CHECK_BOUNDS)
-elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
-    # Nothing yet
-else()
-    message(FATAL_ERROR "Unknown build type: " ${CMAKE_BUILD_TYPE})
-endif()
+        src/gdal_dataset_wrapper.cpp
+        src/gdal_writer.h
+        src/gdal_writer.cpp
+        src/processor.h
+        src/feature_sequential_processor.cpp
+        src/feature_sequential_processor.h
+        src/raster_sequential_processor.cpp
+        src/raster_sequential_processor.h
+    )
 
 # Make a shared and static version of the library
 foreach(LINKING SHARED STATIC)
     add_library(${LIB_NAME}_${LINKING} ${LINKING} ${PROJECT_SOURCES})
+
+    # Check matrix bounds for debug builds
+    set_target_properties(${LIB_NAME}_${LINKING}
+            PROPERTIES COMPILE_DEFINITIONS $<$<CONFIG:Debug>:MATRIX_CHECK_BOUNDS>)
 
     target_include_directories(
             ${LIB_NAME}_${LINKING}
@@ -123,6 +136,13 @@ foreach(LINKING SHARED STATIC)
             ${LIB_NAME}_${LINKING}
             PRIVATE
             GEOS_USE_ONLY_R_API
+    )
+
+    target_compile_options(
+            ${LIB_NAME}_${LINKING}
+            PRIVATE
+            $<$<CXX_COMPILER_ID:GNU>:-Werror -Wall -Wextra -Wshadow -Wdouble-promotion>
+            $<$<CXX_COMPILER_ID:Clang>:-Werror -Wall -Wextra -Wshadow -Wdouble-promotion>
     )
 
     target_link_libraries(
@@ -152,6 +172,31 @@ target_link_libraries(
             ${GEOS_LIBRARY}
 )
 
+# Doxygen configuration from https://vicrucann.github.io/tutorials/quick-cmake-doxygen/
+# first we can indicate the documentation build as an option and set it to ON by default
+option(BUILD_DOC "Build documentation" ON)
+
+# check if Doxygen is installed
+find_package(Doxygen)
+if (DOXYGEN_FOUND)
+    # set input and output files
+    set(DOXYGEN_IN ${CMAKE_SOURCE_DIR}/docs/Doxyfile.in)
+    set(DOXYGEN_OUT ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
+
+    # request to configure the file
+    configure_file(${DOXYGEN_IN} ${DOXYGEN_OUT} @ONLY)
+    message("Doxygen build started")
+
+    # note the option ALL which allows to build the docs together with the application
+    add_custom_target( doc_doxygen ALL
+            COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYGEN_OUT}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+            COMMENT "Generating API documentation with Doxygen"
+            VERBATIM )
+else (DOXYGEN_FOUND)
+    message("Doxygen need to be installed to generate the doxygen documentation")
+endif (DOXYGEN_FOUND)
+
 # Create our main program, statically linked to our library
 # Unlike the library, this depends on GDAL
 if (GDAL_FOUND)
@@ -173,10 +218,21 @@ if (GDAL_FOUND)
             PRIVATE
             ${CMAKE_BINARY_DIR}/generated
             ${CMAKE_SOURCE_DIR}/src
-            ${CLI11_INCLUDE_DIR}
             ${GEOS_INCLUDE_DIR}
             ${GDAL_INCLUDE_DIR}
     )
+
+    # Include CLI11 as a system include so that -Wshadow warnings are suppressed.
+    target_include_directories(
+            ${BIN_NAME}
+            SYSTEM PRIVATE ${CLI11_INCLUDE_DIR}
+    )
+
+    target_compile_options(
+            ${BIN_NAME}
+            PRIVATE
+            $<$<CXX_COMPILER_ID:GNU>:-Werror -Wall -Wextra -Wshadow>
+            $<$<CXX_COMPILER_ID:Clang>:-Werror -Wall -Wextra -Wshadow -Wdouble-promotion>)
 
     install(TARGETS ${BIN_NAME}
             RUNTIME
@@ -186,4 +242,3 @@ else(GDAL_FOUND)
             "GDAL was not found. It is still possible to build and test libexactextract, but the "
             "exactextract executable cannot be built or installed.")
 endif(GDAL_FOUND)
-

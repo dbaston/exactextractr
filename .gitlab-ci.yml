@@ -5,7 +5,6 @@ services:
 
 stages:
   - build
-  - test
   - release
 
 variables:
@@ -22,18 +21,32 @@ build:
     - docker build --pull -t $CONTAINER_TEST_IMAGE .
     - docker push $CONTAINER_TEST_IMAGE
 
-# The "test" stage just includes an additional test run
-# against an older version of GEOS. Testing against
-# current GEOS is done in the build stage.
-test-legacy:
-  stage: test
-  image: isciences/exactextract-build-env:geos36
+coverage:
+  stage: build
+  image: isciences/exactextract-build-env:latest
   script:
-    - mkdir build-master
-    - cd build-master
-    - cmake ..
-    - make catch_tests
+    - mkdir build-coverage
+    - cd build-coverage
+    - cmake -DCMAKE_BUILD_TYPE=Coverage ..
+    - make -j2 catch_tests
     - ./catch_tests
+    - lcov --capture --directory CMakeFiles --output-file coverage.info
+    - bash <(curl -s https://codecov.io/bash)
+
+pages:
+  stage: release
+  image: isciences/exactextract-build-env:latest
+  script:
+    - mkdir build-docs
+    - cd build-docs
+    - cmake ..
+    - make doc_doxygen
+    - mv html ../public
+  artifacts:
+    paths:
+      - public
+  only:
+    - master
 
 release-image:
   stage: release
