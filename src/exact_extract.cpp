@@ -1,4 +1,4 @@
-// Copyright (c) 2018 ISciences, LLC.
+// Copyright (c) 2018-2019 ISciences, LLC.
 // All rights reserved.
 //
 // This software is licensed under the Apache License, Version 2.0 (the "License").
@@ -24,7 +24,7 @@
 #include "matrix_wrapper.h"
 
 using geom_ptr= std::unique_ptr<GEOSGeometry, std::function<void(GEOSGeometry*)>>;
-using wkb_reader_ptr = std::unique_ptr<GEOSWKBReader, std::function<void(GEOSGeometry*)>>;
+using wkb_reader_ptr = std::unique_ptr<GEOSWKBReader, std::function<void(GEOSWKBReader*)>>;
 
 using exactextract::Grid;
 using exactextract::bounded_extent;
@@ -144,6 +144,9 @@ Rcpp::NumericMatrix CPP_weights(const Rcpp::NumericVector & extent,
 
 // [[Rcpp::export]]
 SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringVector & stats) {
+  return rast;
+}
+#if 0
 
   Rcpp::Environment raster = Rcpp::Environment::namespace_env("raster");
   Rcpp::Function getValuesBlockFn = raster["getValuesBlock"];
@@ -164,7 +167,7 @@ SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringV
   };
 
   auto handle = initGEOS_r(geos_warn, geos_error);
-  auto coverage_fraction = raster_cell_intersection(grid, handle, read_wkb(handle, wkb).release());
+  auto coverage_fraction = raster_cell_intersection(grid, handle, read_wkb(handle, wkb).get());
 
   Rcpp::NumericVector stat_results = Rcpp::no_init(stats.size());
 
@@ -203,3 +206,5 @@ SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringV
 
   return stat_results;
 }
+
+#endif

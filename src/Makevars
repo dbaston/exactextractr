@@ -1,5 +1,7 @@
 PKG_LIBS = -lgeos_c
 CXX_STD = CXX14
 
-SOURCES = $(wildcard exactextract/src/*.cpp)
+EE = exactextract/src
+
+SOURCES = $(EE)/area.cpp $(EE)/box.cpp $(EE)/cell.cpp $(EE)/coordinate.cpp $(EE)/floodfill.cpp $(EE)/geos_utils.cpp $(EE)/perimeter_distance.cpp $(EE)/grid.cpp $(EE)/raster_cell_intersection.cpp $(EE)/side.cpp $(EE)/traversal.cpp $(EE)/traversal_areas.cpp $(EE)/utils.cpp
 OBJECTS = RcppExports.o exact_extract.o $(SOURCES:.cpp=.o)

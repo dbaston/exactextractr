@@ -1,4 +1,4 @@
-// Copyright (c) 2018 ISciences, LLC.
+// Copyright (c) 2018-2019 ISciences, LLC.
 // All rights reserved.
 //
 // This software is licensed under the Apache License, Version 2.0 (the "License").
@@ -10,6 +10,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// [[Rcpp::plugins("cpp11")]]
 
 // This file provides a wrapper around the Rcpp NumericMatrix and
 // IntegerMatrix types, so that their elements can be accessed by
@@ -54,17 +56,17 @@ MatrixWrapper<int> wrap(const Rcpp::IntegerMatrix & m) {
   return { m };
 }
 
-class NumericMatrixRaster : public exactextract::AbstractRaster {
-public:
-  NumericMatrixRaster(const Rcpp::NumericMatrix & mat, const Box & b) :
-    m_mat{mat},
-    m_grid{}
-  }
-
-  virtual double operator()(size_t row, size_t col) const {
-
-  }
-private:
-  const Rcpp::NumericMatrix& m_mat;
-  const Grid<bounded_extent> m_grid;
-}
+//class NumericMatrixRaster : public exactextract::AbstractRaster {
+//public:
+//  NumericMatrixRaster(const Rcpp::NumericMatrix & mat, const exactextract::Box & b) :
+//    m_mat{mat},
+//    m_grid{}
+//  }
+//
+//  virtual double operator()(size_t row, size_t col) const {
+//
+//  }
+//private:
+//  const Rcpp::NumericMatrix& m_mat;
+//  const exactextract::Grid<exactextract::bounded_extent> m_grid;
+//}
