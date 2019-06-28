@@ -74,6 +74,9 @@ jobs:
            choco install r --no-progress
         displayName: 'Installing R'
       - script: |
+           curl -Lo Rtools.exe "https://cran.r-project.org/bin/windows/Rtools/Rtools35.exe"
+           Rtools.exe /SILENT /SP- /NORESTART
+      - script: |
            set PATH=%PATH%;C:\Progra~1\R\R-3.6.0\bin
            echo options(repos = "$(CRAN)") > %HOMEDRIVE%%HOMEPATH%/Documents/.Rprofile
            mkdir $(R_LIBS_USER)
