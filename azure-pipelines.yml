@@ -27,7 +27,9 @@ jobs:
            R -e "install.packages(c('remotes', 'rcmdcheck'))"
            Rscript -e "remotes::install_deps(dependencies = TRUE)"
         displayName: 'Install package dependencies'
-      - script: Rscript -e 'rcmdcheck::rcmdcheck(args = "--no-manual", error_on = "warning")'
+      - script: |
+           Rscript -e 'devtools::document()'
+           Rscript -e 'rcmdcheck::rcmdcheck(args = "--no-manual", error_on = "warning")'
         displayName: 'Check package'
 
   - job: 'macOS'
@@ -52,7 +54,9 @@ jobs:
            R -e "install.packages(c('remotes', 'rcmdcheck', 'xml2'))"
            Rscript -e "remotes::install_deps(dependencies = TRUE)" -e "remotes::install_github('r-lib/covr')"
         displayName: 'Install package dependencies'
-      - script: Rscript -e 'rcmdcheck::rcmdcheck(args = "--no-manual", error_on = "warning", check_dir = "check")'
+      - script: |
+          Rscript -e 'devtools::document()'
+          Rscript -e 'rcmdcheck::rcmdcheck(args = "--no-manual", error_on = "warning", check_dir = "check")'
         displayName: 'Check package'
       - task: PublishTestResults@1
         inputs:
@@ -84,5 +88,6 @@ jobs:
         displayName: 'Install package dependencies'
       - script: |
            set PATH=%PATH%;C:\Progra~1\R\R-3.6.0\bin
+           Rscript -e "devtools::document():
            Rscript -e "rcmdcheck::rcmdcheck(args = '--no-manual', error_on = 'warning')"
         displayName: 'Check package'
