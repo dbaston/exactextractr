@@ -55,7 +55,7 @@ jobs:
            Rscript -e "remotes::install_deps(dependencies = TRUE)" -e "remotes::install_github('r-lib/covr')"
         displayName: 'Install package dependencies'
       - script: |
-          Rscript -e 'devtools::document()'
+          Rscript -e 'roxygen2::roxygenize()'
           Rscript -e 'rcmdcheck::rcmdcheck(args = "--no-manual", error_on = "warning", check_dir = "check")'
         displayName: 'Check package'
       - task: PublishTestResults@1
@@ -88,6 +88,6 @@ jobs:
         displayName: 'Install package dependencies'
       - script: |
            set PATH=%PATH%;C:\Progra~1\R\R-3.6.0\bin
-           Rscript -e "devtools::document():
+           Rscript -e "roxygen2::roxygenize()"
            Rscript -e "rcmdcheck::rcmdcheck(args = '--no-manual', error_on = 'warning')"
         displayName: 'Check package'
