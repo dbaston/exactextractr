@@ -58,8 +58,8 @@ static void geos_error(const char* fmt, ...) {
   Rcpp::stop(buf);
 }
 
-// Create an Extent from vectors representing the spatial extent and resolution
-static Grid<bounded_extent> make_extent(const Rcpp::NumericVector & extent, const Rcpp::NumericVector & res) {
+// Create a Grid from vectors representing the spatial extent and resolution
+static Grid<bounded_extent> make_grid(const Rcpp::NumericVector & extent, const Rcpp::NumericVector & res) {
   double xmin = extent[0];
   double xmax = extent[1];
   double ymin = extent[2];
@@ -94,7 +94,7 @@ Rcpp::List CPP_exact_extract(const Rcpp::NumericVector & extent,
                              const Rcpp::RawVector & wkb) {
   auto handle = initGEOS_r(geos_warn, geos_error);
   {
-    auto grid = make_extent(extent, res);
+    auto grid = make_grid(extent, res);
     auto coverage_fractions = raster_cell_intersection(grid, handle, read_wkb(handle, wkb).get());
 
     size_t nrow = coverage_fractions.rows();
@@ -123,7 +123,7 @@ Rcpp::NumericMatrix CPP_weights(const Rcpp::NumericVector & extent,
                                 const Rcpp::RawVector & wkb)
 {
   auto handle = initGEOS_r(geos_warn, geos_error);
-  auto grid = make_extent(extent, res);
+  auto grid = make_grid(extent, res);
   auto coverage_fraction = raster_cell_intersection(grid, handle, read_wkb(handle, wkb).release());
 
   RasterView<float> coverage_view(coverage_fraction, grid);
