@@ -1,9 +1,36 @@
-image: rocker/geospatial:latest
+stages:
+  - test
+  - deploy
 
-test:
+test-latest:
+  stage: test
+  image: rocker/geospatial:latest
   script:
     - R -e "devtools::document()"
-    - R CMD build . --no-build-vignettes --no-manual
-    - export PKG_FILE_NAME=$(ls -1t *.tar.gz | head -n 1)
-    - R CMD check "${PKG_FILE_NAME}" --no-build-vignettes --no-manual --as-cran
+    - R -e "devtools::check()"
+    - R -e "install.packages('DT'); covr::gitlab(quiet=FALSE)"
+  artifacts:
+    paths:
+      - public
 
+test-devel:
+  stage: test
+  image: rocker/geospatial:devel
+  script:
+    - R -e "devtools::document()"
+    - R -e "devtools::check()"
+
+pages:
+  stage: deploy
+  image: rocker/geospatial
+  script:
+    - R -e "devtools::document()"
+    - R -e "pkgdown::build_site()"
+    - mkdir -p public
+    - mv docs/* public
+  artifacts:
+    paths:
+      - public
+  only:
+    - master
+    - gitlab-pages
