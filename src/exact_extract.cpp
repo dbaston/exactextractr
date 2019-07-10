@@ -18,6 +18,7 @@
 #include <geos_c.h>
 
 #include "exactextract/src/grid.h"
+#include "exactextract/src/matrix.h"
 #include "exactextract/src/raster_cell_intersection.h"
 #include "exactextract/src/raster_stats.h"
 
@@ -26,6 +27,7 @@
 using geom_ptr= std::unique_ptr<GEOSGeometry, std::function<void(GEOSGeometry*)>>;
 using wkb_reader_ptr = std::unique_ptr<GEOSWKBReader, std::function<void(GEOSWKBReader*)>>;
 
+using exactextract::Matrix;
 using exactextract::Grid;
 using exactextract::bounded_extent;
 using exactextract::Raster;
@@ -57,6 +59,19 @@ static void geos_error(const char* fmt, ...) {
 
   Rcpp::stop(buf);
 }
+
+// GEOSContextHandle wrapper using RAII to ensure finishGEOS is called.
+struct GEOSAutoHandle {
+  GEOSAutoHandle() {
+    handle = initGEOS_r(geos_warn, geos_error);
+  }
+
+  ~GEOSAutoHandle() {
+    finishGEOS_r(handle);
+  }
+
+  GEOSContextHandle_t handle;
+};
 
 // Create a Grid from vectors representing the spatial extent and resolution
 static Grid<bounded_extent> make_grid(const Rcpp::NumericVector & extent, const Rcpp::NumericVector & res) {
@@ -92,39 +107,37 @@ static geom_ptr read_wkb(const GEOSContextHandle_t & context, const Rcpp::RawVec
 Rcpp::List CPP_exact_extract(const Rcpp::NumericVector & extent,
                              const Rcpp::NumericVector & res,
                              const Rcpp::RawVector & wkb) {
-  auto handle = initGEOS_r(geos_warn, geos_error);
-  {
-    auto grid = make_grid(extent, res);
-    auto coverage_fractions = raster_cell_intersection(grid, handle, read_wkb(handle, wkb).get());
+  GEOSAutoHandle geos;
 
-    size_t nrow = coverage_fractions.rows();
-    size_t ncol = coverage_fractions.cols();
+  auto grid = make_grid(extent, res);
+  auto coverage_fractions = raster_cell_intersection(grid, geos.handle, read_wkb(geos.handle, wkb).get());
 
-    Rcpp::NumericMatrix weights = Rcpp::no_init(nrow, ncol);
-    for (size_t i = 0; i < nrow; i++) {
-      for (size_t j = 0; j < ncol; j++) {
-        weights(i, j) = coverage_fractions(i ,j);
-      }
+  size_t nrow = coverage_fractions.rows();
+  size_t ncol = coverage_fractions.cols();
+
+  Rcpp::NumericMatrix weights = Rcpp::no_init(nrow, ncol);
+  for (size_t i = 0; i < nrow; i++) {
+    for (size_t j = 0; j < ncol; j++) {
+      weights(i, j) = coverage_fractions(i ,j);
     }
-
-    return Rcpp::List::create(
-      Rcpp::Named("row")     = 1 + coverage_fractions.grid().row_offset(grid),
-      Rcpp::Named("col")     = 1 + coverage_fractions.grid().col_offset(grid),
-      Rcpp::Named("weights") = weights
-    );
-
   }
-  finishGEOS_r(handle);
+
+  return Rcpp::List::create(
+    Rcpp::Named("row")     = 1 + coverage_fractions.grid().row_offset(grid),
+    Rcpp::Named("col")     = 1 + coverage_fractions.grid().col_offset(grid),
+    Rcpp::Named("weights") = weights
+  );
 }
 
 // [[Rcpp::export]]
-Rcpp::NumericMatrix CPP_weights(const Rcpp::NumericVector & extent,
-                                const Rcpp::NumericVector & res,
-                                const Rcpp::RawVector & wkb)
+Rcpp::NumericMatrix CPP_coverage_fraction(const Rcpp::NumericVector & extent,
+                                          const Rcpp::NumericVector & res,
+                                          const Rcpp::RawVector & wkb)
 {
-  auto handle = initGEOS_r(geos_warn, geos_error);
+  GEOSAutoHandle geos;
+
   auto grid = make_grid(extent, res);
-  auto coverage_fraction = raster_cell_intersection(grid, handle, read_wkb(handle, wkb).release());
+  auto coverage_fraction = raster_cell_intersection(grid, geos.handle, read_wkb(geos.handle, wkb).release());
 
   RasterView<float> coverage_view(coverage_fraction, grid);
 
@@ -137,17 +150,11 @@ Rcpp::NumericMatrix CPP_weights(const Rcpp::NumericVector & extent,
     }
   }
 
-  finishGEOS_r(handle);
-
   return weights;
 }
 
 // [[Rcpp::export]]
 SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringVector & stats) {
-  return rast;
-}
-#if 0
-
   Rcpp::Environment raster = Rcpp::Environment::namespace_env("raster");
   Rcpp::Function getValuesBlockFn = raster["getValuesBlock"];
   Rcpp::Function extentFn = raster["extent"];
@@ -166,21 +173,36 @@ SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringV
     res[1]
   };
 
-  auto handle = initGEOS_r(geos_warn, geos_error);
-  auto coverage_fraction = raster_cell_intersection(grid, handle, read_wkb(handle, wkb).get());
+  GEOSAutoHandle geos;
+
+  auto coverage_fraction = raster_cell_intersection(grid, geos.handle, read_wkb(geos.handle, wkb).get());
+  auto& subgrid = coverage_fraction.grid();
 
   Rcpp::NumericVector stat_results = Rcpp::no_init(stats.size());
 
-  Rcpp::NumericMatrix rast_values = getValuesBlockFn(rast,
-                                                     1 + rci.row_offset(grid)
-                                                     rci.rows(),
-                                                     1 + rci.col_offset(grid),
-                                                     rci.cols(),
-                                                     "matrix");
 
-  auto mat = wrap(rast_values); // TODO get rid of this and dispatch based on NumericMatrix, IntegerMatrix
-  RasterStats<mat::value_type> raster_stats{true}; // TODO check if this can be false depending on stat
-  raster_stats.process(coverage_fracton, );
+  // TODO remove this copy somehow?
+  // TODO use correct type for mat (don't assume double)
+  Matrix<double> mat(subgrid.rows(), subgrid.cols());
+
+  {
+      Rcpp::NumericMatrix rast_values = getValuesBlockFn(rast,
+                                                         1 + subgrid.row_offset(grid),
+                                                         subgrid.rows(),
+                                                         1 + subgrid.col_offset(grid),
+                                                         subgrid.cols(),
+                                                         "matrix");
+      for (size_t i = 0; i < mat.rows(); i++) {
+          for (size_t j = 0; j < mat.cols(); j++) {
+              mat(i, j) = rast_values(i, j);
+          }
+      }
+  }
+
+  Raster<double> values(std::move(mat), subgrid);
+
+  RasterStats<double> raster_stats{true}; // TODO check if this can be false depending on stat
+  raster_stats.process(coverage_fraction, values);
 
   int i = 0;
   for (const auto & stat : stats) {
@@ -202,9 +224,6 @@ SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringV
     i++;
   }
 
-  finishGEOS_r(handle);
-
   return stat_results;
 }
 
-#endif
