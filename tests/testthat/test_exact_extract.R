@@ -42,6 +42,7 @@ test_that("Basic stat functions work", {
                5)
 
   # Calling with a string computes a named stat from the C++ library
+  expect_equal(exact_extract(rast, square, fun='count'), 4)
   expect_equal(exact_extract(rast, square, fun='mean'), 5)
   expect_equal(exact_extract(rast, square, fun='min'), 1)
   expect_equal(exact_extract(rast, square, fun='max'), 9)
@@ -284,7 +285,7 @@ test_that('Error is raised if function has unexpected signature', {
   poly <- sf::st_buffer(
     sf::st_sfc(
       sf::st_point(c(5,5))),
-    2.5)
+    3)
 
   for (fun in c(length, sum, median, mean, sd)) {
     expect_error(exact_extract(rast, poly, fun),

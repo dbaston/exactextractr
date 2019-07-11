@@ -60,7 +60,7 @@ static void geos_error(const char* fmt, ...) {
   Rcpp::stop(buf);
 }
 
-// GEOSContextHandle wrapper using RAII to ensure finishGEOS is called.
+// GEOSContextHandle wrapper to ensure finishGEOS is called.
 struct GEOSAutoHandle {
   GEOSAutoHandle() {
     handle = initGEOS_r(geos_warn, geos_error);
@@ -180,8 +180,6 @@ SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringV
 
   Rcpp::NumericVector stat_results = Rcpp::no_init(stats.size());
 
-
-  // TODO remove this copy somehow?
   // TODO use correct type for mat (don't assume double)
   Matrix<double> mat(subgrid.rows(), subgrid.cols());
 
@@ -192,6 +190,7 @@ SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringV
                                                          1 + subgrid.col_offset(grid),
                                                          subgrid.cols(),
                                                          "matrix");
+      // TODO remove this copy somehow?
       for (size_t i = 0; i < mat.rows(); i++) {
           for (size_t j = 0; j < mat.cols(); j++) {
               mat(i, j) = rast_values(i, j);
@@ -201,7 +200,15 @@ SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringV
 
   Raster<double> values(std::move(mat), subgrid);
 
-  RasterStats<double> raster_stats{true}; // TODO check if this can be false depending on stat
+  bool store_values = false;
+  for (const auto & stat : stats) {
+    // explicit construction of std::string seems necessary to avoid ambiguous overload error
+    if (stat == std::string("mode") || stat == std::string("minority") || stat == std::string("variety")) {
+      store_values = true;
+    }
+  }
+
+  RasterStats<double> raster_stats(store_values);
   raster_stats.process(coverage_fraction, values);
 
   int i = 0;
@@ -226,4 +233,3 @@ SEXP CPP_stats(Rcpp::S4 & rast, const Rcpp::RawVector & wkb, const Rcpp::StringV
 
   return stat_results;
 }
-
